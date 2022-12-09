@@ -1,38 +1,26 @@
-// https://github.com/altonotch/rust-warp-websockets-example/blob/master/src/main.rs
-
 use futures::SinkExt;
 use futures::StreamExt;
 use warp::Filter;
 use warp::ws;
-use warp::filters::ws::Message;
 
-// async fn send_message(mut websocket: warp::ws::WebSocket){
-//     let msg = Message::text("hello_world");
-//     if let Err(e) = websocket.start_send_unpin(msg){
-//         eprintln!("An error occured: {:?}", e)
-//     };
-// }
 
 async fn receive_message(websocket: warp::ws::WebSocket){
-
     let (mut sender, mut receiver) = websocket.split();
 
-    while let Some(body) = receiver.next().await {
-        let msg_to_client = Message::text("hello_world");
-        let _message = match body {
+    while let Some(response) = receiver.next().await {
+        let message = match response {
             Ok(msg) => msg,
-            Err(e) => {
-                eprintln!("error reading message on websocket: {}", e);
-                break;
-            }
+            Err(_) => panic!("Recieved message caused an error"),
         };
 
-        if let Err(e) = sender.start_send_unpin(msg_to_client){
-            eprintln!("Could not send message to client {:?}", e)
-        };
+        match sender.send(message).await {
+            Ok(_) => continue,
+            Err(_) => panic!("Error! Oh no!"),
+        }
     }
 
 }
+
 
 #[tokio::main]
 async fn main() {
