@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Game</title>
+    </head>
+    <body>
+
+        <p id="userId">UserId: Login to receive a user ID</p>
+
+        <button onClick="login_button()">Login</button>
+        <button onClick="send_meaningless()">Not Login</button>
+
+        <p id="currentMoney">No money update received yet.</p>
+
+        <ul id="messageList">
+        </ul>
+
+
+        <script type="text/javascript">
+            const uri = 'ws://' + location.host + '/ws';
+            const ws = new WebSocket(uri);
+
+            let messageCount = 0;
+
+            const messagesUl = document.getElementById("messageList");
+            const userId = document.getElementById("userId");
+            const moneyCount = document.getElementById("currentMoney");
+
+            function login_button() {
+                ws.send("login");
+            }
+
+            function send_meaningless() {
+                ws.send("fake_data");
+            }
+
+            function message(data) {
+                const line = document.createElement('p');
+                line.innerText = data;
+                log.appendChild(line);
+            }
+
+            ws.onmessage = function(msg) {
+                let newLi = document.createElement("li");
+
+                let parsedMessageData = JSON.parse(msg.data);
+                let messageType = parsedMessageData.type;
+                let messageData = parsedMessageData.data;
+                let messageError = parsedMessageData.error;
+
+                console.log(messageData);
+
+                if (messageType === "Login") {
+                    userId.innerHTML = `UserId: ${messageData.user_id}`;
+                }
+                else if (messageType === "Update") {
+                    if (messageData.money !== undefined) {
+                        moneyCount.innerHTML = `Money: ${messageData.money}`;
+                    };
+                    newLi.innerHTML = `MessageId: ${messageCount}</br>Type: ${messageType}`;
+                    messageCount ++;
+                    messagesUl.appendChild(newLi);
+                }
+
+                if (messagesUl.childElementCount > 3) {
+                    messagesUl.removeChild(messagesUl.getElementsByTagName("li")[0]);
+                };
+            };
+        </script>
+    </body>
+</html>
