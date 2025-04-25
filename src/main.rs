@@ -1,11 +1,10 @@
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Duration;
 
 use futures::SinkExt;
 use futures::StreamExt;
 use serde::Serialize;
 use tokio::time;
+use uuid::Uuid;
 use warp::filters::ws::Message;
 use warp::Filter;
 use warp::ws;
@@ -21,7 +20,7 @@ struct Update {
 
 #[derive(Debug, Serialize)]
 struct Login {
-    user_id: u32,
+    user_id: String,
 }
 
 
@@ -35,7 +34,7 @@ enum Response {
 
 
 
-fn build_login_message(new_user_id: u32) -> Message {
+fn build_login_message(new_user_id: String) -> Message {
     let json_resp = Response::Login(Login {user_id: new_user_id});
     return Message::text(serde_json::to_string(&json_resp).unwrap());
 }
@@ -51,16 +50,11 @@ fn build_game_update_message() -> Message {
 }
 
 
-async fn handle_websocket_connection(websocket: warp::ws::WebSocket, last_user_id: Arc<Mutex<u32>>){
+async fn handle_websocket_connection(websocket: warp::ws::WebSocket){
 
-    let new_user_id;
-    {
-        let mut mutex_user_id = last_user_id.lock().expect("Could not lock user ID mutex.");
-        *mutex_user_id += 1;
-        new_user_id = *mutex_user_id;
-    }
+    let new_user_id = Uuid::new_v4().to_string();
 
-    println!("User connected! ID: {}", new_user_id.to_string());
+    println!("User connected! ID: {}", new_user_id);
     
     let (mut sender, mut recv) = websocket.split();
 
@@ -120,15 +114,12 @@ async fn handle_websocket_connection(websocket: warp::ws::WebSocket, last_user_i
 async fn main() {
     println!("Setting up websocket server...");
 
-    let last_user_id = Arc::new(Mutex::new(0));
-
     let routes = warp::path("ws")
         // The `ws()` filter will prepare the Websocket handshake.
         .and(ws())
-        .and(warp::any().map(move || last_user_id.clone()))
-        .map(|ws: ws::Ws, last_user_id: Arc<Mutex<u32>>| {
+        .map(|ws: ws::Ws| {
             // And then our closure will be called when it completes...
-            ws.on_upgrade(move |socket| handle_websocket_connection(socket, last_user_id))
+            ws.on_upgrade(move |socket| handle_websocket_connection(socket))
         });
 
     let index = warp::path::end().and(warp::fs::file("src/index.html"));
