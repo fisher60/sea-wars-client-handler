@@ -1,44 +1,20 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use futures::SinkExt;
 use futures::StreamExt;
+use game::build_login_failure_message;
+use game::build_login_message;
+use game::game_loop;
 use tokio::sync::mpsc;
-use tokio::time::interval;
 use uuid::Uuid;
 use warp::filters::ws::Message;
 use warp::filters::ws::WebSocket;
 use warp::Filter;
 use warp::ws;
 
-use crate::game::{ GameHandler, Login, Response, Update };
+use crate::game::GameHandler;
 mod game;
 
-const TICK_TIME_MS: Duration = Duration::from_millis(500);
-
-
-fn build_login_message(new_user_id: String) -> Message {
-    let json_resp = Response::Login(Login {user_id: new_user_id});
-    return Message::text(serde_json::to_string(&json_resp).unwrap());
-}
-
-fn build_login_failure_message() -> Message {
-    let json_resp = Response::Error(String::from("You must login before continuing"));
-    return Message::text(serde_json::to_string(&json_resp).unwrap());
-}
-
-fn build_game_update_message() -> Message {
-    let json_resp = Response::Update(Update { money: Some(0) });
-    return Message::text(serde_json::to_string(&json_resp).unwrap());
-}
-
-async fn game_loop(game_handler: Arc<GameHandler>) {
-    let mut ticker = interval(TICK_TIME_MS);
-    loop {
-        ticker.tick().await;
-        game_handler.broadcast(build_game_update_message()).await;
-    }
-}
 
 async fn user_connection(ws: WebSocket, game_handler: Arc<GameHandler>) {
     let (mut ws_tx, mut ws_rx) = ws.split();
@@ -93,7 +69,7 @@ async fn user_connection(ws: WebSocket, game_handler: Arc<GameHandler>) {
 
     if login_success {
         game_handler.register_client(client_id, tx).await;
-        
+
         // Task to send messages from server to client
         while let Some(msg) = rx.recv().await {
             if ws_tx.send(msg).await.is_err() {

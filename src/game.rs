@@ -1,7 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use serde::Serialize;
-use tokio::sync::{mpsc, RwLock};
+use tokio::{sync::{mpsc, RwLock}, time::interval};
 use uuid::Uuid;
 use warp::filters::ws::Message;
 
@@ -62,4 +62,29 @@ pub enum Response {
     Update(Update),
     Login(Login),
     Error(String),
+}
+
+pub fn build_login_message(new_user_id: String) -> Message {
+    let json_resp = Response::Login(Login {user_id: new_user_id});
+    return Message::text(serde_json::to_string(&json_resp).unwrap());
+}
+
+pub fn build_login_failure_message() -> Message {
+    let json_resp = Response::Error(String::from("You must login before continuing"));
+    return Message::text(serde_json::to_string(&json_resp).unwrap());
+}
+
+pub fn build_game_update_message() -> Message {
+    let json_resp = Response::Update(Update { money: Some(0) });
+    return Message::text(serde_json::to_string(&json_resp).unwrap());
+}
+
+pub async fn game_loop(game_handler: Arc<GameHandler>) {
+    const TICK_TIME_MS: Duration = Duration::from_millis(500);
+    
+    let mut ticker = interval(TICK_TIME_MS);
+    loop {
+        ticker.tick().await;
+        game_handler.broadcast(build_game_update_message()).await;
+    }
 }
