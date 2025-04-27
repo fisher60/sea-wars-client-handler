@@ -1,37 +1,20 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::SinkExt;
 use futures::StreamExt;
-use serde::Serialize;
-use tokio::time;
+use tokio::sync::mpsc;
+use tokio::time::interval;
 use uuid::Uuid;
 use warp::filters::ws::Message;
+use warp::filters::ws::WebSocket;
 use warp::Filter;
 use warp::ws;
 
+use crate::game::{ GameHandler, Login, Response, Update };
+mod game;
+
 const TICK_TIME_MS: Duration = Duration::from_millis(500);
-
-
-#[derive(Debug, Serialize)]
-struct Update {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    money: Option<isize>,
-}
-
-#[derive(Debug, Serialize)]
-struct Login {
-    user_id: String,
-}
-
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "type", content = "data")]
-enum Response {
-    Update(Update),
-    Login(Login),
-    Error(String),
-}
-
 
 
 fn build_login_message(new_user_id: String) -> Message {
@@ -49,21 +32,30 @@ fn build_game_update_message() -> Message {
     return Message::text(serde_json::to_string(&json_resp).unwrap());
 }
 
+async fn game_loop(game_handler: Arc<GameHandler>) {
+    let mut ticker = interval(TICK_TIME_MS);
+    loop {
+        ticker.tick().await;
+        game_handler.broadcast(build_game_update_message()).await;
+    }
+}
 
-async fn handle_websocket_connection(websocket: warp::ws::WebSocket){
+async fn user_connection(ws: WebSocket, game_handler: Arc<GameHandler>) {
+    let (mut ws_tx, mut ws_rx) = ws.split();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
 
-    let new_user_id = Uuid::new_v4().to_string();
+    let client_id = Uuid::new_v4();
 
-    println!("User connected! ID: {}", new_user_id);
-    
-    let (mut sender, mut recv) = websocket.split();
+    println!("Client {} connected", client_id);
 
-    while let Some(result) = recv.next().await {
+    let mut login_success = false;
+
+    while let Some(result) = ws_rx.next().await {
         let msg = match result {
             Ok(msg) => msg,
             Err(e) => {
                 eprintln!("websocket error: {}", e);
-                return;
+                break;
             }
         };
 
@@ -71,22 +63,25 @@ async fn handle_websocket_connection(websocket: warp::ws::WebSocket){
             Ok(str_msg) => str_msg,
             Err(e) => {
                 eprintln!("Invalid login request: {:?}", e);
-                return;
+                continue;
             }
         };
 
         if str_msg == "login" {
-            let resp_message = build_login_message(new_user_id);
-            match sender.send(resp_message).await {
-                Ok(_) => break,
+            let resp_message = build_login_message(client_id.to_string());
+            match ws_tx.send(resp_message).await {
+                Ok(_) => {
+                    login_success = true;
+                    break;
+                },
                 Err(_) => {
-                    println!("Failed to send login message, disconnecting websocket...");
+                    eprintln!("Failed to send login message, disconnecting websocket...");
                     break;
                 }
             }
         }
         else {
-            match sender.send(build_login_failure_message()).await {
+            match ws_tx.send(build_login_failure_message()).await {
                 Ok(_) => continue,
                 Err(_) => {
                     println!("Failed to send login fail message, disconnecting websocket...");
@@ -96,17 +91,27 @@ async fn handle_websocket_connection(websocket: warp::ws::WebSocket){
         }
     }
 
-    loop {
-        time::sleep(TICK_TIME_MS).await;
-        match sender.send(build_game_update_message()).await {
-            Ok(_) => continue,
-            Err(_) => {
-                println!("Failed to send game update message, disconnecting websocket...");
+    if login_success {
+        game_handler.register_client(client_id, tx).await;
+        
+        // Task to send messages from server to client
+        while let Some(msg) = rx.recv().await {
+            if ws_tx.send(msg).await.is_err() {
                 break;
             }
         }
     }
 
+    // Client disconnected
+    game_handler.unregister_client(&client_id).await;
+    println!("Client {} disconnected", client_id);
+}
+
+
+fn with_game_handler(
+    game_handler: Arc<GameHandler>,
+) -> impl Filter<Extract = (Arc<GameHandler>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || game_handler.clone())
 }
 
 
@@ -114,12 +119,17 @@ async fn handle_websocket_connection(websocket: warp::ws::WebSocket){
 async fn main() {
     println!("Setting up websocket server...");
 
+    let game_handler = Arc::new(GameHandler::new());
+
+    tokio::spawn(game_loop(game_handler.clone()));
+
     let routes = warp::path("ws")
         // The `ws()` filter will prepare the Websocket handshake.
         .and(ws())
-        .map(|ws: ws::Ws| {
+        .and(with_game_handler(game_handler.clone()))
+        .map(|ws: ws::Ws, game_handler: Arc<GameHandler>| {
             // And then our closure will be called when it completes...
-            ws.on_upgrade(move |socket| handle_websocket_connection(socket))
+            ws.on_upgrade(move |socket| user_connection(socket, game_handler))
         });
 
     let index = warp::path::end().and(warp::fs::file("src/index.html"));
