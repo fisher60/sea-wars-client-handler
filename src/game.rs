@@ -1,7 +1,10 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use serde::Serialize;
-use tokio::{sync::{mpsc, RwLock}, time::interval};
+use tokio::{
+    sync::{RwLock, mpsc},
+    time::interval,
+};
 use uuid::Uuid;
 use warp::filters::ws::Message;
 
@@ -22,7 +25,10 @@ impl GameHandler {
         let clients = self.clients.read().await;
         for (client_uuid, tx) in clients.iter() {
             if let Err(_disconnected) = tx.send(msg.clone()) {
-                println!("Failed to send game update message to client {}, disconnecting websocket...", client_uuid);
+                println!(
+                    "Failed to send game update message to client {}, disconnecting websocket...",
+                    client_uuid
+                );
             }
         }
     }
@@ -43,7 +49,6 @@ impl GameHandler {
     }
 }
 
-
 #[derive(Debug, Serialize)]
 pub struct Update {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -55,7 +60,6 @@ pub struct Login {
     pub user_id: String,
 }
 
-
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", content = "data")]
 pub enum Response {
@@ -65,7 +69,9 @@ pub enum Response {
 }
 
 pub fn build_login_message(new_user_id: String) -> Message {
-    let json_resp = Response::Login(Login {user_id: new_user_id});
+    let json_resp = Response::Login(Login {
+        user_id: new_user_id,
+    });
     return Message::text(serde_json::to_string(&json_resp).unwrap());
 }
 
@@ -81,7 +87,7 @@ pub fn build_game_update_message() -> Message {
 
 pub async fn game_loop(game_handler: Arc<GameHandler>) {
     const TICK_TIME_MS: Duration = Duration::from_millis(500);
-    
+
     let mut ticker = interval(TICK_TIME_MS);
     loop {
         ticker.tick().await;

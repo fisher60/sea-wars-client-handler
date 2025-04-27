@@ -7,14 +7,13 @@ use game::build_login_message;
 use game::game_loop;
 use tokio::sync::mpsc;
 use uuid::Uuid;
+use warp::Filter;
 use warp::filters::ws::Message;
 use warp::filters::ws::WebSocket;
-use warp::Filter;
 use warp::ws;
 
 use crate::game::GameHandler;
 mod game;
-
 
 async fn user_connection(ws: WebSocket, game_handler: Arc<GameHandler>) {
     let (mut ws_tx, mut ws_rx) = ws.split();
@@ -49,14 +48,13 @@ async fn user_connection(ws: WebSocket, game_handler: Arc<GameHandler>) {
                 Ok(_) => {
                     login_success = true;
                     break;
-                },
+                }
                 Err(_) => {
                     eprintln!("Failed to send login message, disconnecting websocket...");
                     break;
                 }
             }
-        }
-        else {
+        } else {
             match ws_tx.send(build_login_failure_message()).await {
                 Ok(_) => continue,
                 Err(_) => {
@@ -83,13 +81,11 @@ async fn user_connection(ws: WebSocket, game_handler: Arc<GameHandler>) {
     println!("Client {} disconnected", client_id);
 }
 
-
 fn with_game_handler(
     game_handler: Arc<GameHandler>,
 ) -> impl Filter<Extract = (Arc<GameHandler>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || game_handler.clone())
 }
-
 
 #[tokio::main]
 async fn main() {
