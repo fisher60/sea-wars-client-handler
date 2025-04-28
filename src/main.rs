@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use futures::SinkExt;
 use futures::StreamExt;
+use game::Player;
 use game::build_login_failure_message;
 use game::build_login_message;
 use game::game_loop;
@@ -65,8 +66,14 @@ async fn user_connection(ws: WebSocket, game_handler: Arc<GameHandler>) {
         }
     }
 
+    let player = Player {
+        client_id: client_id,
+        money: 0,
+        ws_tx: tx,
+    };
+
     if login_success {
-        game_handler.register_client(client_id, tx).await;
+        game_handler.register_client(client_id, player).await;
 
         // Task to send messages from server to client
         while let Some(msg) = rx.recv().await {
