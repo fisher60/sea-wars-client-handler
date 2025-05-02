@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use futures::SinkExt;
 use futures::StreamExt;
+use game::GameHandler;
 use game::Player;
 use game::build_login_failure_message;
 use game::build_login_message;
@@ -13,8 +14,8 @@ use warp::filters::ws::Message;
 use warp::filters::ws::WebSocket;
 use warp::ws;
 
-use crate::game::GameHandler;
 mod game;
+mod map;
 
 async fn user_connection(ws: WebSocket, game_handler: Arc<GameHandler>) {
     let (mut ws_tx, mut ws_rx) = ws.split();
@@ -67,9 +68,9 @@ async fn user_connection(ws: WebSocket, game_handler: Arc<GameHandler>) {
     }
 
     let player = Player {
-        client_id: client_id,
+        client_id,
+        tx,
         money: 0,
-        ws_tx: tx,
     };
 
     if login_success {
